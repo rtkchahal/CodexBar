@@ -64,14 +64,18 @@ public struct FoundryDeploymentProbeResultSnapshot: Codable, Sendable, Equatable
 extension FoundryUsageSnapshot {
     public func toUsageSnapshot() -> UsageSnapshot {
         let groups = Dictionary(grouping: self.deployments, by: \.providerKey)
+        // Probes mean different things per endpoint shape. Anthropic-style
+        // Foundry endpoints (anthropic-foundry) don't expose `/models`, so
+        // probes return 404 and are noise. Only surface probe ratios when at
+        // least one probe in the group succeeded.
         let summaryParts = groups
             .map { key, list -> String in
                 let groupProbes = self.probes.filter { $0.providerKey == key }
                 let okCount = groupProbes.filter { $0.status == "ok" }.count
-                if groupProbes.isEmpty {
-                    return "\(key): \(list.count)"
+                if okCount > 0 {
+                    return "\(key): \(okCount)/\(list.count) ok"
                 }
-                return "\(key): \(okCount)/\(list.count) ok"
+                return "\(key): \(list.count)"
             }
             .sorted()
 
@@ -79,25 +83,22 @@ extension FoundryUsageSnapshot {
         var extras: [NamedRateWindow] = []
 
         if let rollup = self.rollup {
-            // Render three "windows" with usedPercent=0 (no cap on consumption
-            // billing) but expressive reset descriptions so the UI shows the
-            // real counters without the misleading 100%-left bar.
-            let now = self.updatedAt
-            extras.append(Self.makeWindow(
-                id: "foundry.today",
-                title: "Today",
-                totals: rollup.today,
-                reset: Calendar(identifier: .gregorian).startOfDay(for: Date(timeInterval: 86_400, since: now))))
-            extras.append(Self.makeWindow(
-                id: "foundry.week",
-                title: "7-day",
-                totals: rollup.week,
-                reset: nil))
-            extras.append(Self.makeWindow(
-                id: "foundry.month",
-                title: "Month",
-                totals: rollup.month,
-                reset: rollup.monthResetAt))
+            // Foundry is consumption-billed — no caps, no resets. Pack raw
+            // counters into `resetDescription`; the MenuCardView Foundry
+            // branch reads that as `statusText` and skips the progress bar.
+            extras.append(Self.makeWindow(id: "foundry.today", title: "Today (UTC)", totals: rollup.today))
+            extras.append(Self.makeWindow(id: "foundry.week", title: "Last 7 days", totals: rollup.week))
+            extras.append(Self.makeWindow(id: "foundry.month", title: "Month-to-date", totals: rollup.month))
+
+            // Per-deployment MTD breakdown, sorted by total tokens descending.
+            let perDeployment = rollup.perDeploymentMTD
+                .sorted { $0.value.totalTokens > $1.value.totalTokens }
+            for (deployment, totals) in perDeployment where totals.totalTokens > 0 {
+                extras.append(Self.makeWindow(
+                    id: "foundry.dep.\(deployment)",
+                    title: deployment,
+                    totals: totals))
+            }
 
             let totalMTD = Int(rollup.month.totalTokens)
             let reqMTD = Int(rollup.month.modelRequests)
@@ -128,12 +129,13 @@ extension FoundryUsageSnapshot {
     private static func makeWindow(
         id: String,
         title: String,
-        totals: FoundryWindowTotals,
-        reset: Date?) -> NamedRateWindow
+        totals: FoundryWindowTotals) -> NamedRateWindow
     {
         let input = Int(totals.inputTokens)
         let output = Int(totals.outputTokens)
         let req = Int(totals.modelRequests)
+        // No reset date — Foundry doesn't have one. The branch in MenuCardView
+        // routes `resetDescription` to `statusText` to bypass the bar.
         let description = "In \(self.formattedTokenCount(input)) · Out \(self.formattedTokenCount(output)) · \(req) req"
         return NamedRateWindow(
             id: id,
@@ -141,7 +143,7 @@ extension FoundryUsageSnapshot {
             window: RateWindow(
                 usedPercent: 0,
                 windowMinutes: nil,
-                resetsAt: reset,
+                resetsAt: nil,
                 resetDescription: description))
     }
 
