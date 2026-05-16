@@ -66,15 +66,18 @@ extension FoundryUsageSnapshot {
 
         var loginParts = summaryParts
         if !self.monitorReports.isEmpty {
-            let mtdPromptTokens = self.monitorReports
-                .compactMap(\.processedPromptTokens)
+            let mtdTotalTokens = self.monitorReports
+                .compactMap { $0.totalTokens ?? (($0.inputTokens ?? 0) + ($0.outputTokens ?? 0)) }
                 .reduce(0, +)
-            let mtdCompletionTokens = self.monitorReports
-                .compactMap(\.generatedCompletionTokens)
-                .reduce(0, +)
-            let totalTokens = Int(mtdPromptTokens + mtdCompletionTokens)
+            let totalTokens = Int(mtdTotalTokens)
             if totalTokens > 0 {
-                loginParts.append("MTD: \(Self.formattedTokenCount(totalTokens))")
+                loginParts.append("MTD: \(Self.formattedTokenCount(totalTokens)) tokens")
+            }
+            let requestSum = self.monitorReports
+                .compactMap { $0.totalRequests }
+                .reduce(0, +)
+            if requestSum > 0 {
+                loginParts.append("\(Int(requestSum)) req")
             }
         }
 

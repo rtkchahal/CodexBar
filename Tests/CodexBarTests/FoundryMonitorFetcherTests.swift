@@ -30,15 +30,23 @@ final class FoundryMonitorFetcherTests: XCTestCase {
         let payload: [String: Any] = [
             "value": [
                 [
-                    "name": ["value": "ProcessedPromptTokens"],
+                    "name": ["value": "InputTokens"],
                     "timeseries": [
                         ["data": [["total": 100.0], ["total": 50.0]]],
                         ["data": [["total": 25.0]]],
                     ],
                 ],
                 [
-                    "name": ["value": "GeneratedCompletionTokens"],
+                    "name": ["value": "OutputTokens"],
                     "timeseries": [["data": [["total": 200.0]]]],
+                ],
+                [
+                    "name": ["value": "TotalTokens"],
+                    "timeseries": [["data": [["total": 375.0]]]],
+                ],
+                [
+                    "name": ["value": "ModelRequests"],
+                    "timeseries": [["data": [["total": 40.0]]]],
                 ],
                 [
                     "name": ["value": "AzureOpenAIRequests"],
@@ -56,10 +64,12 @@ final class FoundryMonitorFetcherTests: XCTestCase {
             start: start,
             end: end,
             monthReset: reset)
-        XCTAssertEqual(report.processedPromptTokens, 175.0)
-        XCTAssertEqual(report.generatedCompletionTokens, 200.0)
-        XCTAssertNil(report.processedInferenceTokens)
+        XCTAssertEqual(report.inputTokens, 175.0)
+        XCTAssertEqual(report.outputTokens, 200.0)
+        XCTAssertEqual(report.totalTokens, 375.0)
+        XCTAssertEqual(report.modelRequests, 40.0)
         XCTAssertEqual(report.azureOpenAIRequests, 7.0)
+        XCTAssertEqual(report.totalRequests, 47.0)
         XCTAssertEqual(report.windowStart, start)
         XCTAssertEqual(report.windowEnd, end)
     }
@@ -67,7 +77,7 @@ final class FoundryMonitorFetcherTests: XCTestCase {
     func test_fetchReport_returnsParsedReportOnSuccess() async throws {
         let payload: [String: Any] = [
             "value": [[
-                "name": ["value": "ProcessedPromptTokens"],
+                "name": ["value": "InputTokens"],
                 "timeseries": [["data": [["total": 12.0]]]],
             ]],
         ]
@@ -84,7 +94,7 @@ final class FoundryMonitorFetcherTests: XCTestCase {
             resourceId: self.sampleResourceId,
             now: Date(timeIntervalSince1970: 1_700_000_000),
             runtime: runtime)
-        XCTAssertEqual(report.processedPromptTokens, 12.0)
+        XCTAssertEqual(report.inputTokens, 12.0)
     }
 
     func test_fetchReport_throwsMissingAZCLIWhenPathUnavailable() async {

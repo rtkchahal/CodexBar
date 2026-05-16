@@ -10,9 +10,10 @@ import FoundationNetworking
 /// counters scoped to a Cognitive Services account resource.
 public struct FoundryMonitorReport: Sendable, Equatable, Codable {
     public let resourceId: String
-    public let processedPromptTokens: Double?
-    public let generatedCompletionTokens: Double?
-    public let processedInferenceTokens: Double?
+    public let inputTokens: Double?
+    public let outputTokens: Double?
+    public let totalTokens: Double?
+    public let modelRequests: Double?
     public let azureOpenAIRequests: Double?
     public let windowStart: Date
     public let windowEnd: Date
@@ -20,22 +21,32 @@ public struct FoundryMonitorReport: Sendable, Equatable, Codable {
 
     public init(
         resourceId: String,
-        processedPromptTokens: Double?,
-        generatedCompletionTokens: Double?,
-        processedInferenceTokens: Double?,
+        inputTokens: Double?,
+        outputTokens: Double?,
+        totalTokens: Double?,
+        modelRequests: Double?,
         azureOpenAIRequests: Double?,
         windowStart: Date,
         windowEnd: Date,
         monthResetAt: Date)
     {
         self.resourceId = resourceId
-        self.processedPromptTokens = processedPromptTokens
-        self.generatedCompletionTokens = generatedCompletionTokens
-        self.processedInferenceTokens = processedInferenceTokens
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.totalTokens = totalTokens
+        self.modelRequests = modelRequests
         self.azureOpenAIRequests = azureOpenAIRequests
         self.windowStart = windowStart
         self.windowEnd = windowEnd
         self.monthResetAt = monthResetAt
+    }
+
+    /// Sum of OpenAI + Anthropic-on-Foundry request counters.
+    public var totalRequests: Double? {
+        let openAI = self.azureOpenAIRequests ?? 0
+        let model = self.modelRequests ?? 0
+        let sum = openAI + model
+        return sum > 0 ? sum : nil
     }
 }
 
@@ -144,9 +155,10 @@ public enum FoundryMonitorFetcher {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         let metrics = [
-            "ProcessedPromptTokens",
-            "GeneratedCompletionTokens",
-            "ProcessedInferenceTokens",
+            "InputTokens",
+            "OutputTokens",
+            "TotalTokens",
+            "ModelRequests",
             "AzureOpenAIRequests",
         ].joined(separator: ",")
         components?.queryItems = [
@@ -191,9 +203,10 @@ public enum FoundryMonitorFetcher {
 
         return FoundryMonitorReport(
             resourceId: resourceId,
-            processedPromptTokens: totals["ProcessedPromptTokens"],
-            generatedCompletionTokens: totals["GeneratedCompletionTokens"],
-            processedInferenceTokens: totals["ProcessedInferenceTokens"],
+            inputTokens: totals["InputTokens"],
+            outputTokens: totals["OutputTokens"],
+            totalTokens: totals["TotalTokens"],
+            modelRequests: totals["ModelRequests"],
             azureOpenAIRequests: totals["AzureOpenAIRequests"],
             windowStart: start,
             windowEnd: end,
