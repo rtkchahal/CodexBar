@@ -23,29 +23,28 @@ Legend: `[ ]` todo • `[~]` in progress • `[x]` done • `[!]` blocked
       reference
 - [x] Write spec (this PR's `docs/superpowers/specs/2026-05-16-…`)
 - [x] Write plan (this file)
-- [ ] Smoke build: `swift build` clean from a fresh checkout
-- [ ] Smoke test: `swift test` baseline green before any code change
+- [x] Office Mac dev environment ready (Xcode 26.2, Swift 6.2.3)
+- [x] Smoke build: `swift build` clean (105s baseline)
+- [x] Smoke test: `swift test` baseline green (48 tests)
 
-### Phase 1 — Static descriptor + auto-discovery (no network)
-- [ ] Add `ProviderID.foundry` (find enum + extend with branding tokens)
-- [ ] Create `Sources/CodexBarCore/Providers/Foundry/` skeleton
-  - [ ] `FoundryDeployment.swift`
-  - [ ] `FoundrySettingsReader.swift` (parse `models.json`, parse manual
-        config, merge + de-dup)
-  - [ ] `FoundryProviderDescriptor.swift` (registration, metadata, branding,
-        empty fetch pipeline returning an "auto-discovered" snapshot)
-  - [ ] `FoundryUsageSnapshot.swift`
-- [ ] Add provider icon asset `ProviderIcon-foundry` (Azure-blue mark)
-- [ ] Wire toggle into Settings (no Azure Monitor section yet)
-- [ ] Tests:
-  - [ ] `FoundrySettingsReaderTests` — fixtures with the real
-        `models.json` shape captured from
-        `~/.openclaw/agents/main/agent/models.json` (redact keys)
-  - [ ] `FoundryProviderDescriptorTests` — descriptor identity + default
-        disabled
-- [ ] `make check` + `swift test`
-- [ ] Manual smoke: launch app, confirm Foundry tile shows "N
-      deployments discovered (no usage data yet)"
+### Phase 1 — Static descriptor + auto-discovery (no network) ✅
+- [x] Add `UsageProvider.foundry` + `IconStyle.foundry`
+- [x] Create `Sources/CodexBarCore/Providers/Foundry/` skeleton
+  - [x] `FoundryDeployment.swift`
+  - [x] `FoundrySettingsReader.swift` (parses real OpenClaw `models.json`
+        with provider-key allow-list)
+  - [x] `FoundryProviderDescriptor.swift` (registered, branded Azure blue)
+  - [x] `FoundryUsageSnapshot.swift`
+  - [x] `FoundryProviderImplementation.swift` (app-layer stub)
+- [x] Add provider icon asset `ProviderIcon-foundry` (placeholder: Bedrock
+      copy until real Azure-blue mark)
+- [x] Extend all exhaustive `UsageProvider` switches (CostUsageScanner,
+      UsageStore debug dict, widget views)
+- [x] Tests: `FoundrySettingsReaderTests` (5 tests, includes parse +
+      snapshot + malformed JSON cases)
+- [x] `swift build` + `swift test` green (53/53 passing)
+- [ ] Manual smoke: launch app, confirm Foundry tile shows discovered
+      deployments (deferred — needs UI session on office Mac)
 
 ### Phase 2 — Probe strategy (per-deployment health)
 - [ ] `FoundryProbeFetcher.swift` — `GET <endpoint>/openai/models` or
@@ -87,10 +86,13 @@ Legend: `[ ]` todo • `[~]` in progress • `[x]` done • `[!]` blocked
 
 ## Status checkpoints (auto-update each session)
 
-- **Last touched:** Phase 0 → ready to start Phase 1
-- **Next action:** baseline `swift build` + `swift test`, then scaffold
-  `Sources/CodexBarCore/Providers/Foundry/` and capture a redacted fixture
-  of `~/.openclaw/agents/main/agent/models.json` for parser tests.
+- **Last touched:** 2026-05-16 — Phase 1 done
+- **Next action:** Phase 2 (probe strategy). Pick a deployment per
+  provider-key family, call `GET <baseURL>/models` (or AOAI equivalent),
+  capture `x-ratelimit-*` headers, surface per-deployment status badges.
+- **Open question:** anthropic-foundry endpoint — does
+  `https://<resource>.services.ai.azure.com/v1/models` return a usable
+  list? If not, fall back to a 1-token completion probe.
 
 ## Risks / blockers (running list)
 
