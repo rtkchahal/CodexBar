@@ -20,8 +20,10 @@ final class FoundryMonitorFetcherTests: XCTestCase {
         let url = try FoundryMonitorFetcher.buildMetricsURL(resourceId: self.sampleResourceId, start: start, end: end)
         let absolute = url.absoluteString
         XCTAssertTrue(absolute.hasPrefix("https://management.azure.com/subscriptions/sub-123/"))
-        XCTAssertTrue(absolute.contains("metricnames=ProcessedPromptTokens"))
-        XCTAssertTrue(absolute.contains("GeneratedCompletionTokens"))
+        XCTAssertTrue(absolute.contains("InputTokens"))
+        XCTAssertTrue(absolute.contains("OutputTokens"))
+        XCTAssertTrue(absolute.contains("TotalTokens"))
+        XCTAssertTrue(absolute.contains("ModelRequests"))
         XCTAssertTrue(absolute.contains("aggregation=Total"))
         XCTAssertTrue(absolute.contains("api-version=\(FoundryMonitorFetcher.apiVersion)"))
     }
