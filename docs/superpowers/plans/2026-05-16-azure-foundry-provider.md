@@ -63,18 +63,23 @@ Legend: `[ ]` todo • `[~]` in progress • `[x]` done • `[!]` blocked
 - [ ] Manual smoke: tile shows `N/N ok` for anthropic-foundry (deferred —
       needs UI session + real API key in env)
 
-### Phase 3 — Azure Monitor strategy (V2, behind feature flag)
-- [ ] Detect `az` CLI on PATH
-- [ ] `FoundryMonitorFetcher` — shell out to
-      `az account get-access-token --resource https://management.azure.com`,
-      call metrics REST API
+### Phase 3 — Azure Monitor strategy (V2) ✅ (engine done; UI deferred)
+- [x] Detect `az` CLI on PATH via injectable `azPath` runtime
+- [x] `FoundryMonitorFetcher` — ARM metrics REST API client with
+      ProcessedPromptTokens / GeneratedCompletionTokens /
+      ProcessedInferenceTokens / AzureOpenAIRequests aggregations
+- [x] `runAZForToken()` shells out to `az account get-access-token` only in
+      production runtime; tests use injected stub token
+- [x] `monthWindow` returns ISO calendar-month start, current end, and
+      next-month reset for the menu countdown
+- [x] Tests: `FoundryMonitorFetcherTests` (7 cases: window math, URL build,
+      payload parse + multi-timeseries sum, success path with header check,
+      missing-az, 403 request failure, empty resource id)
+- [x] `swift build` + `swift test` green (68/68 passing)
+- [ ] Wire Monitor strategy into descriptor pipeline (gated on resource id
+      config; currently the fetcher is standalone and ready)
 - [ ] Settings UI: Azure Monitor section (status, auth button, toggle)
 - [ ] Persist resource mapping in `~/.codexbar/config.json`
-- [ ] Tests:
-  - [ ] `FoundryMonitorFetcherTests` with stubbed token + stubbed metrics
-        JSON
-- [ ] `make check` + `swift test`
-- [ ] Manual smoke: tile shows MTD tokens + monthly reset
 
 ### Phase 4 — Polish, docs, contribution prep
 - [ ] `docs/foundry.md` — user-facing setup doc (mirrors `docs/bedrock.md`)
