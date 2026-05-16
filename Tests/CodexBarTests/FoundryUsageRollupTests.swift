@@ -41,8 +41,7 @@ final class FoundryUsageRollupTests: XCTestCase {
         XCTAssertEqual(rollup.today.outputTokens, 250)
         XCTAssertEqual(rollup.today.modelRequests, 8)
 
-        XCTAssertEqual(rollup.week.inputTokens, 7000) // 1500 + 2000 + 4000 - wait, today=1500, -1=2000, -5=4000 → 7500
-        // recompute: today buckets total input = 1000+500=1500. -1 day = 2000. -5 day = 4000. Sum = 7500.
+        // today input=1500, -1=2000, -5=4000 → 7500
         XCTAssertEqual(rollup.week.inputTokens, 7500)
         XCTAssertEqual(rollup.week.modelRequests, 38) // 8 + 10 + 20
 
