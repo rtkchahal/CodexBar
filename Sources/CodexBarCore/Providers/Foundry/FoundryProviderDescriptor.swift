@@ -1,5 +1,8 @@
 import CodexBarMacroSupport
 import Foundation
+import OSLog
+
+private let foundryLog = Logger(subsystem: "com.steipete.codexbar", category: "foundry")
 
 @ProviderDescriptorRegistration
 @ProviderDescriptorDefinition
@@ -83,12 +86,16 @@ struct FoundryMonitorFetchStrategy: ProviderFetchStrategy {
         let deployments = FoundrySettingsReader.discoverDeployments(environment: context.env)
         let resources = FoundryResourceMap.configuredResources(for: deployments, environment: context.env)
 
+        foundryLog.info("Foundry monitor fetch: \(resources.count, privacy: .public) resources configured")
         let reports: [FoundryMonitorReport] = await withTaskGroup(of: FoundryMonitorReport?.self) { group in
             for pair in resources {
                 group.addTask {
                     do {
-                        return try await FoundryMonitorFetcher.fetchReport(resourceId: pair.resourceId)
+                        let report = try await FoundryMonitorFetcher.fetchReport(resourceId: pair.resourceId)
+                        foundryLog.info("Foundry monitor OK provider=\(pair.providerKey, privacy: .public) total=\(report.totalTokens ?? 0, privacy: .public)")
+                        return report
                     } catch {
+                        foundryLog.error("Foundry monitor FAIL provider=\(pair.providerKey, privacy: .public) error=\(String(describing: error), privacy: .public)")
                         return nil
                     }
                 }

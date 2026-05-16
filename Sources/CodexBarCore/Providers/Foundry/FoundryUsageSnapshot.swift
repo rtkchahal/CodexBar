@@ -65,19 +65,34 @@ extension FoundryUsageSnapshot {
             .sorted()
 
         var loginParts = summaryParts
+        var primary: RateWindow?
+
         if !self.monitorReports.isEmpty {
             let mtdTotalTokens = self.monitorReports
                 .compactMap { $0.totalTokens ?? (($0.inputTokens ?? 0) + ($0.outputTokens ?? 0)) }
                 .reduce(0, +)
             let totalTokens = Int(mtdTotalTokens)
-            if totalTokens > 0 {
-                loginParts.append("MTD: \(Self.formattedTokenCount(totalTokens)) tokens")
-            }
             let requestSum = self.monitorReports
                 .compactMap { $0.totalRequests }
                 .reduce(0, +)
+
+            if totalTokens > 0 {
+                loginParts.append("MTD: \(Self.formattedTokenCount(totalTokens)) tokens")
+            }
             if requestSum > 0 {
                 loginParts.append("\(Int(requestSum)) req")
+            }
+
+            // Surface MTD usage as the primary rate window so the Usage
+            // section shows real numbers + monthly reset countdown.
+            if let firstReport = self.monitorReports.first, totalTokens > 0 {
+                let label = "MTD \(Self.formattedTokenCount(totalTokens)) tokens" +
+                    (requestSum > 0 ? " · \(Int(requestSum)) req" : "")
+                primary = RateWindow(
+                    usedPercent: 0,
+                    windowMinutes: nil,
+                    resetsAt: firstReport.monthResetAt,
+                    resetDescription: label)
             }
         }
 
@@ -88,7 +103,7 @@ extension FoundryUsageSnapshot {
             loginMethod: loginParts.isEmpty ? "no deployments discovered" : loginParts.joined(separator: " · "))
 
         return UsageSnapshot(
-            primary: nil,
+            primary: primary,
             secondary: nil,
             tertiary: nil,
             providerCost: nil,
