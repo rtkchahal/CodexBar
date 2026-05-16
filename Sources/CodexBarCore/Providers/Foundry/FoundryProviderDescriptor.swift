@@ -33,7 +33,10 @@ public enum FoundryProviderDescriptor {
                 noDataMessage: { "No Foundry deployments discovered. Configure OpenClaw or add manual deployments." }),
             fetchPlan: ProviderFetchPlan(
                 sourceModes: [.auto, .api],
-                pipeline: ProviderFetchPipeline(resolveStrategies: { _ in [FoundryDiscoveryFetchStrategy()] })),
+                pipeline: ProviderFetchPipeline(resolveStrategies: { _ in [
+                    FoundryProbeFetchStrategy(),
+                    FoundryDiscoveryFetchStrategy(),
+                ] })),
             cli: ProviderCLIConfig(
                 name: "foundry",
                 aliases: ["azure-foundry"],
@@ -58,5 +61,53 @@ struct FoundryDiscoveryFetchStrategy: ProviderFetchStrategy {
 
     func shouldFallback(on _: any Error, context _: ProviderFetchContext) -> Bool {
         false
+    }
+}
+
+/// Phase 2 strategy: probes each discovered deployment for reachability +
+/// rate-limit hints. Requires `CODEXBAR_FOUNDRY_KEY_<PROVIDER>` env vars; if
+/// no probe yields data the descriptor falls back to ``FoundryDiscoveryFetchStrategy``.
+struct FoundryProbeFetchStrategy: ProviderFetchStrategy {
+    let id: String = "foundry.probe"
+    let kind: ProviderFetchKind = .apiToken
+
+    func isAvailable(_ context: ProviderFetchContext) async -> Bool {
+        let deployments = FoundrySettingsReader.discoverDeployments(environment: context.env)
+        guard !deployments.isEmpty else { return false }
+        // Available iff at least one provider-key has a key configured.
+        for deployment in deployments {
+            if FoundryProbeFetcher.lookupAPIKey(for: deployment, environment: context.env) != nil {
+                return true
+            }
+        }
+        return false
+    }
+
+    func fetch(_ context: ProviderFetchContext) async throws -> ProviderFetchResult {
+        let deployments = FoundrySettingsReader.discoverDeployments(environment: context.env)
+        let env = context.env
+
+        let probes = await withTaskGroup(of: FoundryDeploymentProbeResult.self) { group in
+            for deployment in deployments {
+                group.addTask {
+                    await FoundryProbeFetcher.probe(deployment: deployment, environment: env)
+                }
+            }
+            var results: [FoundryDeploymentProbeResult] = []
+            for await result in group {
+                results.append(result)
+            }
+            return results
+        }
+
+        let snapshot = FoundryUsageSnapshot(
+            deployments: deployments,
+            probes: probes.map(FoundryDeploymentProbeResultSnapshot.init),
+            updatedAt: Date())
+        return self.makeResult(usage: snapshot.toUsageSnapshot(), sourceLabel: "probe")
+    }
+
+    func shouldFallback(on _: any Error, context _: ProviderFetchContext) -> Bool {
+        true
     }
 }
