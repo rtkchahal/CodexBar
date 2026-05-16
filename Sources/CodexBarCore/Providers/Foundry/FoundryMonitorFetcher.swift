@@ -15,6 +15,7 @@ public struct FoundryMonitorReport: Sendable, Equatable, Codable {
     public let totalTokens: Double?
     public let modelRequests: Double?
     public let azureOpenAIRequests: Double?
+    public let dailyBuckets: [FoundryDailyBucket]
     public let windowStart: Date
     public let windowEnd: Date
     public let monthResetAt: Date
@@ -26,6 +27,7 @@ public struct FoundryMonitorReport: Sendable, Equatable, Codable {
         totalTokens: Double?,
         modelRequests: Double?,
         azureOpenAIRequests: Double?,
+        dailyBuckets: [FoundryDailyBucket] = [],
         windowStart: Date,
         windowEnd: Date,
         monthResetAt: Date)
@@ -36,6 +38,7 @@ public struct FoundryMonitorReport: Sendable, Equatable, Codable {
         self.totalTokens = totalTokens
         self.modelRequests = modelRequests
         self.azureOpenAIRequests = azureOpenAIRequests
+        self.dailyBuckets = dailyBuckets
         self.windowStart = windowStart
         self.windowEnd = windowEnd
         self.monthResetAt = monthResetAt
@@ -113,8 +116,8 @@ public enum FoundryMonitorFetcher {
     public static let resourceManagementBase = "https://management.azure.com"
     public static let apiVersion = "2024-02-01"
 
-    /// Fetches month-to-date totals for the given resource. Resource id must
-    /// be the full ARM id, e.g.
+    /// Fetches MTD totals and last-7d daily breakdown (per deployment) for
+    /// the given resource. Resource id must be the full ARM id, e.g.
     /// `/subscriptions/<id>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<name>`.
     public static func fetchReport(
         resourceId: String,
@@ -124,9 +127,16 @@ public enum FoundryMonitorFetcher {
         guard !resourceId.isEmpty else { throw FoundryMonitorError.noResource }
         guard runtime.azPath() != nil else { throw FoundryMonitorError.missingAZCLI }
 
-        let (start, end, reset) = self.monthWindow(for: now)
+        let (monthStart, end, reset) = self.monthWindow(for: now)
+        // Fetch a 8-day daily breakdown so we have enough for today / week
+        // plus the prior-month-end straddle. If the month started <8 days
+        // ago the API still returns only the populated days.
+        let cal = Calendar(identifier: .gregorian)
+        let dailyStart = cal.date(byAdding: .day, value: -7, to: end) ?? monthStart
+        let effectiveStart = min(dailyStart, monthStart)
+
         let token = try await runtime.fetchAccessToken()
-        let url = try self.buildMetricsURL(resourceId: resourceId, start: start, end: end)
+        let url = try self.buildMetricsURL(resourceId: resourceId, start: effectiveStart, end: end)
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -138,7 +148,12 @@ public enum FoundryMonitorFetcher {
             throw FoundryMonitorError.requestFailed(response.statusCode, body)
         }
 
-        return try self.parseReport(data: data, resourceId: resourceId, start: start, end: end, monthReset: reset)
+        return try self.parseReport(
+            data: data,
+            resourceId: resourceId,
+            start: monthStart,
+            end: end,
+            monthReset: reset)
     }
 
     static func monthWindow(for now: Date) -> (start: Date, end: Date, reset: Date) {
@@ -165,6 +180,8 @@ public enum FoundryMonitorFetcher {
             URLQueryItem(name: "api-version", value: self.apiVersion),
             URLQueryItem(name: "metricnames", value: metrics),
             URLQueryItem(name: "aggregation", value: "Total"),
+            URLQueryItem(name: "interval", value: "P1D"),
+            URLQueryItem(name: "$filter", value: "ModelDeploymentName eq '*'"),
             URLQueryItem(name: "timespan", value: "\(formatter.string(from: start))/\(formatter.string(from: end))"),
         ]
         guard let url = components?.url else {
@@ -186,20 +203,56 @@ public enum FoundryMonitorFetcher {
         let values = (top["value"] as? [[String: Any]]) ?? []
 
         var totals: [String: Double] = [:]
+        // Daily buckets keyed by (deployment, dayKey)
+        var dailyMap: [String: [String: FoundryDailyBucket]] = [:]
+        let isoParser = ISO8601DateFormatter()
+        isoParser.formatOptions = [.withInternetDateTime]
+
         for entry in values {
             guard let name = (entry["name"] as? [String: Any])?["value"] as? String else { continue }
             let timeseries = entry["timeseries"] as? [[String: Any]] ?? []
             var sum = 0.0
             for series in timeseries {
+                let deployment = Self.extractDeploymentName(from: series) ?? "unknown"
                 let datapoints = series["data"] as? [[String: Any]] ?? []
                 for point in datapoints {
-                    if let total = point["total"] as? Double {
-                        sum += total
+                    guard let total = point["total"] as? Double else { continue }
+                    sum += total
+                    guard let timeRaw = point["timeStamp"] as? String,
+                          let date = isoParser.date(from: timeRaw)
+                    else { continue }
+                    let key = "\(date.timeIntervalSince1970)"
+                    let existing = dailyMap[deployment]?[key] ?? FoundryDailyBucket(
+                        date: date,
+                        deployment: deployment,
+                        inputTokens: 0,
+                        outputTokens: 0,
+                        modelRequests: 0)
+                    var input = existing.inputTokens
+                    var output = existing.outputTokens
+                    var requests = existing.modelRequests
+                    switch name {
+                    case "InputTokens": input += total
+                    case "OutputTokens": output += total
+                    case "ModelRequests": requests += total
+                    default: break
                     }
+                    dailyMap[deployment, default: [:]][key] = FoundryDailyBucket(
+                        date: date,
+                        deployment: deployment,
+                        inputTokens: input,
+                        outputTokens: output,
+                        modelRequests: requests)
                 }
             }
             totals[name] = sum
         }
+
+        let buckets = dailyMap.values.flatMap { $0.values }
+            .sorted { lhs, rhs in
+                if lhs.date == rhs.date { return lhs.deployment < rhs.deployment }
+                return lhs.date < rhs.date
+            }
 
         return FoundryMonitorReport(
             resourceId: resourceId,
@@ -208,9 +261,23 @@ public enum FoundryMonitorFetcher {
             totalTokens: totals["TotalTokens"],
             modelRequests: totals["ModelRequests"],
             azureOpenAIRequests: totals["AzureOpenAIRequests"],
+            dailyBuckets: buckets,
             windowStart: start,
             windowEnd: end,
             monthResetAt: monthReset)
+    }
+
+    static func extractDeploymentName(from series: [String: Any]) -> String? {
+        let metadata = series["metadatavalues"] as? [[String: Any]] ?? []
+        for entry in metadata {
+            guard let nameDict = entry["name"] as? [String: Any],
+                  let key = nameDict["value"] as? String,
+                  key.lowercased() == "modeldeploymentname",
+                  let value = entry["value"] as? String
+            else { continue }
+            return value
+        }
+        return nil
     }
 
     // Shells out to `az account get-access-token --resource https://management.azure.com`.

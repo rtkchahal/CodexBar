@@ -9,6 +9,7 @@ public struct FoundryUsageSnapshot: Codable, Sendable {
     public let providerGroupCount: Int
     public let probes: [FoundryDeploymentProbeResultSnapshot]
     public let monitorReports: [FoundryMonitorReport]
+    public let rollup: FoundryUsageRollup?
     public let updatedAt: Date
 
     public init(
@@ -22,6 +23,16 @@ public struct FoundryUsageSnapshot: Codable, Sendable {
         self.probes = probes
         self.monitorReports = monitorReports
         self.updatedAt = updatedAt
+        if monitorReports.isEmpty {
+            self.rollup = nil
+        } else {
+            let allBuckets = monitorReports.flatMap(\.dailyBuckets)
+            let reset = monitorReports.first?.monthResetAt ?? updatedAt
+            self.rollup = FoundryUsageRollup.from(
+                buckets: allBuckets,
+                now: updatedAt,
+                monthResetAt: reset)
+        }
     }
 }
 
@@ -65,34 +76,36 @@ extension FoundryUsageSnapshot {
             .sorted()
 
         var loginParts = summaryParts
-        var primary: RateWindow?
+        var extras: [NamedRateWindow] = []
 
-        if !self.monitorReports.isEmpty {
-            let mtdTotalTokens = self.monitorReports
-                .compactMap { $0.totalTokens ?? (($0.inputTokens ?? 0) + ($0.outputTokens ?? 0)) }
-                .reduce(0, +)
-            let totalTokens = Int(mtdTotalTokens)
-            let requestSum = self.monitorReports
-                .compactMap { $0.totalRequests }
-                .reduce(0, +)
+        if let rollup = self.rollup {
+            // Render three "windows" with usedPercent=0 (no cap on consumption
+            // billing) but expressive reset descriptions so the UI shows the
+            // real counters without the misleading 100%-left bar.
+            let now = self.updatedAt
+            extras.append(Self.makeWindow(
+                id: "foundry.today",
+                title: "Today",
+                totals: rollup.today,
+                reset: Calendar(identifier: .gregorian).startOfDay(for: Date(timeInterval: 86_400, since: now))))
+            extras.append(Self.makeWindow(
+                id: "foundry.week",
+                title: "7-day",
+                totals: rollup.week,
+                reset: nil))
+            extras.append(Self.makeWindow(
+                id: "foundry.month",
+                title: "Month",
+                totals: rollup.month,
+                reset: rollup.monthResetAt))
 
-            if totalTokens > 0 {
-                loginParts.append("MTD: \(Self.formattedTokenCount(totalTokens)) tokens")
+            let totalMTD = Int(rollup.month.totalTokens)
+            let reqMTD = Int(rollup.month.modelRequests)
+            if totalMTD > 0 {
+                loginParts.append("MTD: \(Self.formattedTokenCount(totalMTD)) tokens")
             }
-            if requestSum > 0 {
-                loginParts.append("\(Int(requestSum)) req")
-            }
-
-            // Surface MTD usage as the primary rate window so the Usage
-            // section shows real numbers + monthly reset countdown.
-            if let firstReport = self.monitorReports.first, totalTokens > 0 {
-                let label = "MTD \(Self.formattedTokenCount(totalTokens)) tokens" +
-                    (requestSum > 0 ? " · \(Int(requestSum)) req" : "")
-                primary = RateWindow(
-                    usedPercent: 0,
-                    windowMinutes: nil,
-                    resetsAt: firstReport.monthResetAt,
-                    resetDescription: label)
+            if reqMTD > 0 {
+                loginParts.append("\(reqMTD) req")
             }
         }
 
@@ -103,12 +116,33 @@ extension FoundryUsageSnapshot {
             loginMethod: loginParts.isEmpty ? "no deployments discovered" : loginParts.joined(separator: " · "))
 
         return UsageSnapshot(
-            primary: primary,
+            primary: nil,
             secondary: nil,
             tertiary: nil,
+            extraRateWindows: extras.isEmpty ? nil : extras,
             providerCost: nil,
             updatedAt: self.updatedAt,
             identity: identity)
+    }
+
+    private static func makeWindow(
+        id: String,
+        title: String,
+        totals: FoundryWindowTotals,
+        reset: Date?) -> NamedRateWindow
+    {
+        let input = Int(totals.inputTokens)
+        let output = Int(totals.outputTokens)
+        let req = Int(totals.modelRequests)
+        let description = "In \(self.formattedTokenCount(input)) · Out \(self.formattedTokenCount(output)) · \(req) req"
+        return NamedRateWindow(
+            id: id,
+            title: title,
+            window: RateWindow(
+                usedPercent: 0,
+                windowMinutes: nil,
+                resetsAt: reset,
+                resetDescription: description))
     }
 
     static func formattedTokenCount(_ count: Int) -> String {
