@@ -46,17 +46,22 @@ Legend: `[ ]` todo • `[~]` in progress • `[x]` done • `[!]` blocked
 - [ ] Manual smoke: launch app, confirm Foundry tile shows discovered
       deployments (deferred — needs UI session on office Mac)
 
-### Phase 2 — Probe strategy (per-deployment health)
-- [ ] `FoundryProbeFetcher.swift` — `GET <endpoint>/openai/models` or
-      `/v1/models` (provider-flavour switch), parse `x-ratelimit-*`
-- [ ] `FoundryProbeStrategy` conforming to `ProviderFetchStrategy`
-- [ ] Per-deployment status aggregation in snapshot
-- [ ] Defensive: short timeout (4s), no retries, never log raw key
-- [ ] Tests:
-  - [ ] `FoundryProbeFetcherTests` with `URLProtocol`-stubbed fixtures
-        for AOAI 200 / 401 / 429 / network error cases
-- [ ] `make check` + `swift test`
-- [ ] Manual smoke: tile shows `7/7 reachable` for anthropic-foundry
+### Phase 2 — Probe strategy (per-deployment health) ✅
+- [x] `FoundryProbeFetcher.swift` — GET against `/v1/models` or
+      `/openai/models?api-version=...` depending on URL shape
+- [x] `FoundryProbeFetchStrategy` conforming to `ProviderFetchStrategy`,
+      registered before `FoundryDiscoveryFetchStrategy` so it wins when
+      keys are configured but falls back gracefully
+- [x] Per-deployment status (ok / unauthorized / notFound / throttled /
+      serverError / network / missingKey) aggregated in snapshot
+- [x] Defensive: 4s timeout, no retries, both `api-key` and `Authorization:
+      Bearer` headers, never log raw key
+- [x] Tests: `FoundryProbeFetcherTests` (8 cases incl. 200 w/ rate-limit
+      headers, 401/403/404/429/500/503 mapping, network timeout, header
+      assertions)
+- [x] `swift build` + `swift test` green (61/61 passing)
+- [ ] Manual smoke: tile shows `N/N ok` for anthropic-foundry (deferred —
+      needs UI session + real API key in env)
 
 ### Phase 3 — Azure Monitor strategy (V2, behind feature flag)
 - [ ] Detect `az` CLI on PATH
