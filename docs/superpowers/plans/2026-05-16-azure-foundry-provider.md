@@ -82,9 +82,16 @@ Legend: `[ ]` todo • `[~]` in progress • `[x]` done • `[!]` blocked
 - [ ] Persist resource mapping in `~/.codexbar/config.json`
 
 ### Phase 4 — Polish, docs, contribution prep
-- [ ] `docs/foundry.md` — user-facing setup doc (mirrors `docs/bedrock.md`)
+- [x] Wire `FoundryMonitorFetchStrategy` into the descriptor pipeline
+      (gated on `CODEXBAR_FOUNDRY_RESOURCE_<PROVIDER>` env mapping)
+- [x] Add `FoundryResourceMap` env-var loader
+- [x] Surface MTD token totals in the snapshot identity line when monitor
+      reports exist
+- [x] `docs/foundry.md` — user-facing setup, env vars, troubleshooting
+- [x] Final build + tests green on office Mac (68/68)
+- [ ] swiftformat + swiftlint — not installed on office Mac; rerun on a
+      box where they're available before upstream PR
 - [ ] README provider list + screenshots refreshed
-- [ ] Run `swiftformat Sources Tests` + `swiftlint --strict`
 - [ ] Open PR on fork → squashed commits, screenshots, test output
 - [ ] Decide upstream PR: extract `PMI-*` names into config-driven
       "AzureOpenAIProvider" generic form before proposing upstream
