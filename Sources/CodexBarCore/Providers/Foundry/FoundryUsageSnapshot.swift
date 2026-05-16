@@ -8,16 +8,19 @@ public struct FoundryUsageSnapshot: Codable, Sendable {
     public let deployments: [FoundryDeployment]
     public let providerGroupCount: Int
     public let probes: [FoundryDeploymentProbeResultSnapshot]
+    public let monitorReports: [FoundryMonitorReport]
     public let updatedAt: Date
 
     public init(
         deployments: [FoundryDeployment],
         probes: [FoundryDeploymentProbeResultSnapshot] = [],
+        monitorReports: [FoundryMonitorReport] = [],
         updatedAt: Date)
     {
         self.deployments = deployments
         self.providerGroupCount = Set(deployments.map(\.providerKey)).count
         self.probes = probes
+        self.monitorReports = monitorReports
         self.updatedAt = updatedAt
     }
 }
@@ -61,11 +64,25 @@ extension FoundryUsageSnapshot {
             }
             .sorted()
 
+        var loginParts = summaryParts
+        if !self.monitorReports.isEmpty {
+            let mtdPromptTokens = self.monitorReports
+                .compactMap(\.processedPromptTokens)
+                .reduce(0, +)
+            let mtdCompletionTokens = self.monitorReports
+                .compactMap(\.generatedCompletionTokens)
+                .reduce(0, +)
+            let totalTokens = Int(mtdPromptTokens + mtdCompletionTokens)
+            if totalTokens > 0 {
+                loginParts.append("MTD: \(Self.formattedTokenCount(totalTokens))")
+            }
+        }
+
         let identity = ProviderIdentitySnapshot(
             providerID: .foundry,
             accountEmail: nil,
             accountOrganization: nil,
-            loginMethod: summaryParts.isEmpty ? "no deployments discovered" : summaryParts.joined(separator: " · "))
+            loginMethod: loginParts.isEmpty ? "no deployments discovered" : loginParts.joined(separator: " · "))
 
         return UsageSnapshot(
             primary: nil,
@@ -74,5 +91,14 @@ extension FoundryUsageSnapshot {
             providerCost: nil,
             updatedAt: self.updatedAt,
             identity: identity)
+    }
+
+    static func formattedTokenCount(_ count: Int) -> String {
+        if count >= 1_000_000 {
+            return String(format: "%.1fM", Double(count) / 1_000_000)
+        } else if count >= 1000 {
+            return String(format: "%.1fK", Double(count) / 1000)
+        }
+        return "\(count)"
     }
 }

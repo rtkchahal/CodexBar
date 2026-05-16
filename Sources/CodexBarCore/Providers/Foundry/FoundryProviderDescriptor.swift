@@ -34,6 +34,7 @@ public enum FoundryProviderDescriptor {
             fetchPlan: ProviderFetchPlan(
                 sourceModes: [.auto, .api],
                 pipeline: ProviderFetchPipeline(resolveStrategies: { _ in [
+                    FoundryMonitorFetchStrategy(),
                     FoundryProbeFetchStrategy(),
                     FoundryDiscoveryFetchStrategy(),
                 ] })),
@@ -61,6 +62,80 @@ struct FoundryDiscoveryFetchStrategy: ProviderFetchStrategy {
 
     func shouldFallback(on _: any Error, context _: ProviderFetchContext) -> Bool {
         false
+    }
+}
+
+/// Phase 3 strategy: aggregates Azure Monitor MTD token + request counts
+/// for any deployment whose provider key has a resource id mapped via
+/// `CODEXBAR_FOUNDRY_RESOURCE_<PROVIDER>` env vars. Falls back to probe
+/// strategy when Azure Monitor is not configured or the `az` CLI is
+/// unavailable.
+struct FoundryMonitorFetchStrategy: ProviderFetchStrategy {
+    let id: String = "foundry.monitor"
+    let kind: ProviderFetchKind = .apiToken
+
+    func isAvailable(_ context: ProviderFetchContext) async -> Bool {
+        let deployments = FoundrySettingsReader.discoverDeployments(environment: context.env)
+        return !FoundryResourceMap.configuredResources(for: deployments, environment: context.env).isEmpty
+    }
+
+    func fetch(_ context: ProviderFetchContext) async throws -> ProviderFetchResult {
+        let deployments = FoundrySettingsReader.discoverDeployments(environment: context.env)
+        let resources = FoundryResourceMap.configuredResources(for: deployments, environment: context.env)
+
+        let reports: [FoundryMonitorReport] = await withTaskGroup(of: FoundryMonitorReport?.self) { group in
+            for pair in resources {
+                group.addTask {
+                    do {
+                        return try await FoundryMonitorFetcher.fetchReport(resourceId: pair.resourceId)
+                    } catch {
+                        return nil
+                    }
+                }
+            }
+            var collected: [FoundryMonitorReport] = []
+            for await report in group {
+                if let report { collected.append(report) }
+            }
+            return collected
+        }
+
+        // Best-effort: also include probes if any keys are set so the card
+        // can still surface per-deployment health alongside MTD totals.
+        let probes = await Self.probeIfPossible(deployments: deployments, environment: context.env)
+
+        let snapshot = FoundryUsageSnapshot(
+            deployments: deployments,
+            probes: probes.map(FoundryDeploymentProbeResultSnapshot.init),
+            monitorReports: reports,
+            updatedAt: Date())
+        return self.makeResult(usage: snapshot.toUsageSnapshot(), sourceLabel: "monitor")
+    }
+
+    func shouldFallback(on _: any Error, context _: ProviderFetchContext) -> Bool {
+        true
+    }
+
+    private static func probeIfPossible(
+        deployments: [FoundryDeployment],
+        environment: [String: String]) async -> [FoundryDeploymentProbeResult]
+    {
+        let probeable = deployments.filter {
+            FoundryProbeFetcher.lookupAPIKey(for: $0, environment: environment) != nil
+        }
+        guard !probeable.isEmpty else { return [] }
+        return await withTaskGroup(of: FoundryDeploymentProbeResult.self) { group in
+            for deployment in probeable {
+                group.addTask {
+                    await FoundryProbeFetcher.probe(deployment: deployment, environment: environment)
+                }
+            }
+            var results: [FoundryDeploymentProbeResult] = []
+            for await result in group {
+                results.append(result)
+            }
+            return results
+        }
     }
 }
 
