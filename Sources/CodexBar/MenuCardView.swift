@@ -1097,7 +1097,26 @@ extension UsageMenuCardView.Model {
         }
         if let extraRateWindows = snapshot.extraRateWindows {
             metrics.append(contentsOf: extraRateWindows.map { namedWindow in
-                Metric(
+                // Foundry (and any future consumption-billed provider) packs
+                // raw counters into `resetDescription` and wants the plain
+                // text rendered instead of a progress bar. We detect that by
+                // provider identity and route through `statusText`, which
+                // suppresses the bar entirely.
+                if input.provider == .foundry {
+                    return Metric(
+                        id: namedWindow.id,
+                        title: namedWindow.title,
+                        percent: 0,
+                        percentStyle: percentStyle,
+                        statusText: namedWindow.window.resetDescription ?? "—",
+                        resetText: nil,
+                        detailText: nil,
+                        detailLeftText: nil,
+                        detailRightText: nil,
+                        pacePercent: nil,
+                        paceOnTop: true)
+                }
+                return Metric(
                     id: namedWindow.id,
                     title: namedWindow.title,
                     percent: Self.clamped(

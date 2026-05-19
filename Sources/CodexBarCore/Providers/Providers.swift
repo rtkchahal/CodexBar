@@ -45,6 +45,7 @@ public enum UsageProvider: String, CaseIterable, Sendable, Codable {
     case stepfun
     case bedrock
     case grok
+    case foundry
 }
 
 // swiftformat:enable sortDeclarations
@@ -92,6 +93,7 @@ public enum IconStyle: Sendable, CaseIterable {
     case stepfun
     case bedrock
     case grok
+    case foundry
     case combined
 }
 
